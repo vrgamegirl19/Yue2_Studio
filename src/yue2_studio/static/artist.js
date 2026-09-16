@@ -37,8 +37,8 @@ function bindArtistTrainer(){
     const project_id=$('artistProjects').value;
     if(!project_id){toast('Choose a saved artist setup first.',true);return;}
     if(!$('artistGpuConfirmed').checked){toast('Confirm GPU preparation and training first.',true);return;}
-    const payload={project_id,gpu_confirmed:true,steps:Number($('artistSteps').value),rank:Number($('artistRank').value),learning_rate:Number($('artistLearningRate').value),checkpoint_every:Number($('artistCheckpoint').value),alignment_weight:Number($('artistAlignment').value)};
-    confirmReplace('Queue Artist LoRA training?','Uses the selected saved setup, not unsaved edits. Whole-song encoding and optional lyric alignment run before '+payload.steps+' training steps. This occupies the shared GPU queue. Playback requires No score, Torch, quantization None, and AR offloading disabled.',()=>busy('artistTrain',async()=>{
+    const payload={project_id,gpu_confirmed:true,steps:Number($('artistSteps').value),rank:Number($('artistRank').value),learning_rate:Number($('artistLearningRate').value),checkpoint_every:Number($('artistCheckpoint').value),alignment_weight:Number($('artistAlignment').value),alignment_method:$('artistAlignmentMethod').value};
+    confirmReplace('Queue Artist LoRA training?','Uses the selected saved setup, not unsaved edits. '+(payload.alignment_weight===0?'Lyric timing is skipped.':payload.alignment_method==='whisper'?'Whisper-assisted lyric timing will save a per-song review JSON.':'MMS lyric alignment will run.')+' Whole-song encoding runs before '+payload.steps+' training steps in the shared GPU queue. Playback requires No score, Torch, quantization None, and AR offloading disabled.',()=>busy('artistTrain',async()=>{
       const job=await api('/api/artist-trainer/train',payload);$('artistGpuConfirmed').checked=false;
       $('artistTrainStatus').textContent='Queued. Open the Library run for preparation progress, training steps, logs, and checkpoints.';
       state.activeId=job.id;await openRun(job.id);await poll();

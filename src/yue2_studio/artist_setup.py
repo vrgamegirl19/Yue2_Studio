@@ -32,7 +32,9 @@ PACKAGES = ['transformers==4.57.6','numpy==2.2.6','soundfile==0.13.1','safetenso
             'huggingface-hub==0.36.2','accelerate==1.13.0','tiktoken==0.12.0','scipy==1.15.3',
             'dora-search==0.1.12','julius==0.2.7','lameenc==1.8.1','openunmix==1.3.0',
             'omegaconf==2.3.0','antlr4-python3-runtime==4.9.3','submitit==1.5.3',
-            'treetable==0.2.6','retrying==1.4.2','cloudpickle==3.1.1','einops==0.8.1']
+            'treetable==0.2.6','retrying==1.4.2','cloudpickle==3.1.1','einops==0.8.1',
+            'stable-ts==2.19.1','openai-whisper==20250625','more-itertools==10.8.0',
+            'numba==0.61.2','llvmlite==0.44.0']
 PROBE = """import json,sys,importlib.metadata as m
 import torch,torchaudio,transformers,scipy,soundfile,safetensors,demucs,demucs.pretrained
 assert sys.version_info[:2]==(3,12), 'Artist runtime requires Python 3.12'
@@ -41,6 +43,13 @@ assert torchaudio.__version__==torch.__version__, 'Torch/torchaudio mismatch'
 assert transformers.__version__=='4.57.6', 'Expected tested Transformers 4.57.6'
 assert not torch.cuda.is_initialized(), 'Setup must not initialize CUDA'
 print(json.dumps({'python':sys.version.split()[0],'torch':torch.__version__,'torchaudio':torchaudio.__version__,'cuda_initialized':False,'demucs':m.version('demucs')}))
+"""
+WHISPER_PROBE = """import json,importlib.metadata as m,shutil,torch,stable_whisper,whisper
+assert m.version('stable-ts')=='2.19.1', 'Expected tested stable-ts 2.19.1'
+assert m.version('openai-whisper')=='20250625', 'Expected tested openai-whisper 20250625'
+assert shutil.which('ffmpeg'), 'Whisper timing requires the FFmpeg CLI in PATH'
+assert not torch.cuda.is_initialized(), 'Whisper setup must not initialize CUDA'
+print(json.dumps({'stable_ts':m.version('stable-ts'),'openai_whisper':m.version('openai-whisper'),'ffmpeg':True,'cuda_initialized':False}))
 """
 
 
@@ -176,6 +185,17 @@ def check_setup(paths=None):
         issues.append('Artist runtime is missing or incompatible: '+str(exc))
     return {'files_and_imports_ready':not issues,'issues':issues,'paths':verified,'runtime':runtime,
             'note':'Read-only CPU verification. Does not establish GPU memory, alignment readiness, or musical quality.'}
+
+
+def check_whisper_runtime(python):
+    """Check optional timing imports without touching CUDA or downloading weights."""
+    try:
+        return json.loads(run_command([python,'-I','-c',WHISPER_PROBE]).stdout.strip().splitlines()[-1])
+    except (OSError,ValueError,IndexError,subprocess.SubprocessError) as exc:
+        raise ValueError('Whisper-assisted timing needs stable-ts/openai-whisper in the separate Artist runtime '
+                         'and FFmpeg on PATH. Use Install separate Artist runtime or the manual steps in '
+                         'docs/artist-trainer.md. '
+                         'The regular MMS method remains available.') from exc
 
 
 def main():

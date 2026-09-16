@@ -47,7 +47,8 @@ models, a separate runtime, caches and adapter checkpoints. See [setup details](
 
 ![Artist training controls with example values](../images/artist-trainer-controls.png)
 
-The screenshot shows older **800 / 200** values; current defaults are **500 / 250**.
+The screenshot shows older **800 / 200** values and predates the lyric-timing
+method selector; current defaults are **500 / 250**.
 
 | Control | Default | Meaning |
 | --- | --- | --- |
@@ -55,6 +56,7 @@ The screenshot shows older **800 / 200** values; current defaults are **500 / 25
 | Save checkpoint every | 250 | Intermediate adapter snapshots for comparison |
 | Rank | 64 | Adapter capacity; higher can use more memory/storage without better results |
 | Learning rate | 0.0001 | Update size; overly aggressive learning can degrade results |
+| Lyric timing method | MMS | Choose the original forced aligner or experimental Whisper-assisted timing |
 | Alignment weight | 0.08 | English lyric-timing supervision; 0 skips separation/alignment, not lyrics |
 
 Click the information disclosures for supported ranges and tradeoffs. These are
@@ -63,9 +65,63 @@ not the Style Trainer clip-length setting. Generation GPU presets do not automat
 tune training speed, memory use or batch size.
 
 Open **Song library → Open run** for encoding, vocal separation, lyric alignment,
-validation, steps, loss and checkpoint artifacts. First-use alignment downloads
-Demucs/MMS weights. Preparation can take longer than a short training run and
+validation, steps, loss and checkpoint artifacts. First-use MMS alignment downloads
+Demucs/MMS weights; Whisper-assisted timing downloads fine-tuned Demucs and
+Whisper large-v3 weights. Preparation can take longer than a short training run and
 happens before optimizer steps. Confidence and loss are not quality scores.
+
+### Choose MMS or Whisper-assisted timing
+
+Both methods use the complete original song for semantic encoding and the full
+lyric file to condition training. Separation is only for estimating lyric timing;
+neither method changes the source recording. Both automatically proceed from
+preparation to LoRA training—there is no manual review step.
+
+| | MMS (default) | Whisper-assisted (experimental) |
+| --- | --- | --- |
+| Vocal separation | Demucs `htdemucs` | Fine-tuned Demucs `htdemucs_ft` |
+| Timing | Forces every supplied English lyric word onto the vocal audio | Whisper large-v3 recognizes audible words; Studio matches them to the supplied lyrics |
+| Missing/uncertain words | Still receive forced positions | Positions are estimated for review, but do **not** supervise timing loss |
+| Diagnostics | Per-song mean forced-alignment confidence in the run log | Exact/fuzzy/estimated counts in the log and per-song timing JSON in `result/alignment` |
+
+Whisper's exact/fuzzy counts do not prove the timestamps are correct. Review the
+lyric files carefully, especially for screams, overlapping vocals or dense mixes.
+The experimental method currently handles English lyrics. When alignment weight
+is **0**, neither method separates vocals or runs lyric timing; lyric files are
+still required for Artist training. The method choice is frozen in each run and
+old MMS setups/runs continue to work.
+
+### Install Whisper timing support
+
+The **Install separate Artist runtime** action on the Artist Trainer page now
+includes the pinned Whisper packages. It creates a fresh Artist-only environment;
+normal Studio Python, model files, songs and existing runs are not upgraded.
+After it completes, use **Check setup**. If you had installed the Artist runtime
+before Whisper was added, choose **Install separate Artist runtime** again before
+queueing Whisper training. MMS can continue using the older runtime.
+
+Alternatively, if you manage the existing Artist environment yourself, install
+the packages into the Python recorded in `training/artist-runtime.json`—not into
+the normal Studio environment. On Windows PowerShell, from the Studio folder:
+
+```powershell
+$artistPython = (Get-Content -LiteralPath 'training/artist-runtime.json' -Raw | ConvertFrom-Json).python
+& $artistPython -m pip install 'stable-ts==2.19.1' 'openai-whisper==20250625' 'more-itertools==10.8.0' 'numba==0.61.2' 'llvmlite==0.44.0'
+& $artistPython -m pip check
+ffmpeg -version
+```
+
+Then use **Check setup** and queue a run with **Whisper-assisted** selected.
+Whisper also requires the [FFmpeg command-line program](https://github.com/jianfch/stable-ts)
+on your system `PATH`; installing the Python packages does not install FFmpeg.
+If `ffmpeg -version` is not found, install FFmpeg for your operating system and
+reopen Studio so its process sees the updated `PATH`.
+The first such run downloads Whisper large-v3 and `htdemucs_ft` weights with an
+internet connection; allow disk space and time for both. The setup check probes
+imports on CPU and does **not** download those weights or validate available GPU
+memory. If the separate runtime lacks Whisper or FFmpeg, the queue rejects the new method
+with an installation hint before starting training. See [Artist setup](artist-setup.md)
+for the other model prerequisites and terms.
 
 Checkpoints/final adapters live in the run's `result` folder. They contain adapter
 weights, not optimizer/RNG state: exact resume is not implemented. Cancellation

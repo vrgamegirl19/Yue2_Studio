@@ -120,8 +120,24 @@ def test_runtime_uses_fresh_environment_and_publishes_only_after_probe(root,monk
     assert calls[0][1:3]==['-m','venv']
     assert all(call[0]==result['python'] for call in calls[1:])
     assert any('check' in call and 'pip' in call for call in calls)
+    package_calls=[call for call in calls if call[1:4]==['-m','pip','install']]
+    assert any('stable-ts==2.19.1' in call and 'openai-whisper==20250625' in call for call in package_calls)
     assert calls[-1][-1]==setup.PROBE
     assert (root/'training/artist-runtime.json').is_file()
+
+
+def test_whisper_runtime_probe_is_cpu_only_and_method_specific(root,monkeypatch):
+    calls=[]
+    def run(args,**kwargs):
+        calls.append(args)
+        return SimpleNamespace(stdout=json.dumps({'stable_ts':'2.19.1','cuda_initialized':False}))
+    monkeypatch.setattr(setup,'run_command',run)
+    assert setup.check_whisper_runtime('artist/python.exe')['cuda_initialized'] is False
+    assert calls==[['artist/python.exe','-I','-c',setup.WHISPER_PROBE]]
+    def missing(args,**kwargs):raise subprocess.CalledProcessError(1,args)
+    monkeypatch.setattr(setup,'run_command',missing)
+    with pytest.raises(ValueError,match='Install separate Artist runtime'):
+        setup.check_whisper_runtime('artist/python.exe')
 
 
 def test_failed_runtime_install_preserves_previous_registration(root,monkeypatch):

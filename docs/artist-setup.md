@@ -21,8 +21,10 @@ and trigger, and save a versioned setup. Source files are not changed. Training
 requires a saved setup, at least two 30–360 second recordings and explicit GPU
 approval. The last selected song is held out; controls default to 500 updates,
 rank 64, learning rate 0.0001, checkpoint interval 250 and alignment weight 0.08.
-Alignment's first use may download Demucs/MMS weights; zero alignment weight
-skips separation/alignment but not lyric conditioning. No silent clipping occurs.
+MMS alignment's first use may download Demucs/MMS weights. Experimental
+Whisper-assisted timing instead downloads `htdemucs_ft` and Whisper large-v3,
+and saves per-song timing JSON for review. Zero alignment weight skips either
+timing method but not lyric conditioning. No silent clipping occurs.
 
 The queue freezes verified model paths and the registered runtime path into the
 job; the worker rechecks pinned assets before GPU work. New checkpoints embed the
@@ -62,7 +64,8 @@ Allow substantial disk space: full base/VAE/MERT weights plus the encoder,
 companion and reference pack, and later caches and runtime dependencies.
 
 The runtime action creates a fresh `.artist-runtimes/<unique-id>` environment,
-installs pinned Torch/torchaudio 2.10.0 CUDA 13.0 and supporting packages, checks
+installs pinned Torch/torchaudio 2.10.0 CUDA 13.0 and supporting packages
+(including stable-ts, openai-whisper, numba and llvmlite), checks
 dependency consistency and CPU imports, then writes `training/artist-runtime.json`.
 It does not upgrade the base Studio environment or `.venv-artist`. A source-only
 `.pth` reference makes installed YuE2/Studio code available without sharing the
@@ -72,8 +75,14 @@ Torch. A working Python 3.12 venv/pip installation and network access are requir
 
 The known Demucs dependencies are installed explicitly before Demucs itself
 (`--no-deps`), followed by `pip check`; this preserves the selected Torch pair.
-Demucs/MMS alignment model downloads and GPU alignment tests are still separate
-release work. Passing the import probe does not establish alignment readiness.
+An older registered Artist runtime may still work for MMS but needs the new
+Whisper packages. Use **Install separate Artist runtime** again or follow the
+manual commands in [the Artist Trainer guide](artist-trainer.md#install-whisper-timing-support).
+The selected Whisper method probes its imports and the FFmpeg CLI on `PATH`
+before queuing GPU work. FFmpeg is a separate system installation, not a Python
+package in the Artist runtime. First-use
+separator/Whisper weight downloads still happen during preparation. Passing CPU
+imports does not establish alignment accuracy or GPU readiness.
 
 Package commands use pip's system-certificate trust-store support and ignore
 unrelated global index/trusted-host settings. TLS verification stays enabled.

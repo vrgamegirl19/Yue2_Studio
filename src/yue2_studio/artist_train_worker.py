@@ -64,6 +64,13 @@ def run(spec,directory):
     cursors={}
     if controls['alignment_weight']:
         for item in train:cursors[item['name']]=cursor_targets(item,tokenizer,device)
+        if controls.get('alignment_method')=='whisper':
+            usable=sum(cursor is not None for cursor in cursors.values())
+            print(f'Whisper timing supervision available for {usable}/{len(train)} training songs; '
+                  'estimated lyric positions supervise no frames.',flush=True)
+            if not usable:
+                raise ValueError('Whisper recognized no usable lyric intervals in the training songs. '
+                                 'Use alignment weight 0 or review the audio/lyrics.')
     def save(name,step):export(adapters,result/name,{**metadata,'step':str(step)})
     @torch.no_grad()
     def evaluate(step):

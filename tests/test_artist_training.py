@@ -10,6 +10,7 @@ from safetensors import safe_open
 from yue2.modeling_yue2 import YuE2Config,YuE2ForCausalLM
 from yue2_studio import artist_ar as ar,artist_training as training
 from yue2_studio.artist_prepare import words_of
+from yue2_studio.artist_whisper import match_lyrics
 from yue2_studio.artist_train_worker import run
 from yue2_studio.jobs import JobManager
 
@@ -37,6 +38,10 @@ def test_ar_gradients_frozen_base_and_export(tmp_path):
         assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in params)
         assert cursor.weight.grad.abs().sum()>0
         optimizer.step()
+    selective=(0,2,3,torch.tensor([0,1]),torch.tensor([0,1]),torch.ones(2),
+               torch.tensor([0,2]),2.)
+    lm,cl=ar.loss(model,ids,3,cursor,selective,grad=False,chunk=2)
+    assert torch.isfinite(lm) and torch.isfinite(cl)
     for name,value in original.items():
         parent,key=name.rsplit('.',1);module=model.get_submodule(parent)
         if isinstance(module,ar.ArtistLinear):module=module.base
@@ -56,11 +61,13 @@ def test_sequences_never_clip():
 
 
 def test_alignment_resampler_is_available():
+    import ast
     import inspect
-    import symtable
     from yue2_studio import artist_prepare
-    symbols=symtable.symtable(inspect.getsource(artist_prepare.prepare),'prepare','exec')
-    assert symbols.get_children()[0].lookup('resample_poly').is_imported()
+    tree=ast.parse(inspect.getsource(artist_prepare.prepare))
+    assert any(isinstance(node,ast.ImportFrom) and node.module=='scipy.signal'
+               and any(alias.name=='resample_poly' for alias in node.names)
+               for node in ast.walk(tree))
 
 
 def test_word_offsets_and_cursor():
@@ -77,6 +84,32 @@ def test_word_offsets_and_cursor():
     torch.testing.assert_close(torch.zeros(frames).index_add_(0,rows,values),torch.ones(frames))
     with pytest.raises(ValueError,match='English'):words_of('bonjour café')
     with pytest.raises(ValueError,match='No alignable'):words_of('[Instrumental]')
+
+
+def test_whisper_timing_excludes_estimates_from_cursor_loss():
+    from types import SimpleNamespace
+    from yue2.protocol import SongRequest,token_prefixes
+    class CharTokenizer:
+        def encode(self,text):return list(map(ord,text))
+        def decode(self,ids):return ''.join(map(chr,ids))
+    lyrics='[Verse]\nHello loud world'
+    result=SimpleNamespace(segments=[SimpleNamespace(words=[
+        SimpleNamespace(word='Hello',start=0.,end=.3),
+        SimpleNamespace(word='world',start=1.,end=1.3)])])
+    timed,summary=match_lyrics(lyrics,result,2.)
+    assert summary['counts']=={'exact':2,'fuzzy':0,'estimated':1}
+    assert [w['source'] for w in timed]==['exact','estimated','exact']
+    tok=CharTokenizer()
+    item=dict(name='whisper',style='guitar',lyrics=lyrics,codec=np.zeros(50,dtype=np.int32),
+              alignment_method='whisper',words=np.array([[w['start'],w['end'],w['training_weight'],
+                                                          w['start_offset'],w['end_offset']] for w in timed]))
+    item['prefix']=token_prefixes(SongRequest(style='guitar',lyrics=lyrics,cot='off'),tok)
+    cursor=ar.cursor_targets(item,tok,'cpu')
+    assert len(cursor)==8
+    active=cursor[6].numpy()
+    assert 0<len(active)<len(item['codec'])
+    assert all((0<=((frame+.5)/25)<.3) or (1<=((frame+.5)/25)<1.3) for frame in active)
+    assert cursor[7]==pytest.approx(len(active))
 
 
 def test_gpu_approval_is_required_before_import_or_preparation(tmp_path):
@@ -130,6 +163,7 @@ def test_validation_controls_and_holdout(tmp_path,monkeypatch):
     from yue2_studio import artist_setup
     registered={'files_and_imports_ready':True,'runtime':{'python':'custom/python.exe'},'paths':{'model':'custom-model'}}
     monkeypatch.setattr(artist_setup,'check_setup',lambda:registered)
+    monkeypatch.setattr(artist_setup,'check_whisper_runtime',lambda _:dict(stable_ts='2.19.1'))
     project={'id':'a'*32,'name':'test'}
     monkeypatch.setattr(training.artist_trainer,'load_project',lambda _:project)
     monkeypatch.setattr(training,'validate_project',lambda _:[{'name':'a'},{'name':'b'}])
@@ -143,10 +177,14 @@ def test_validation_controls_and_holdout(tmp_path,monkeypatch):
     assert spec['python']=='custom/python.exe' and spec['paths']=={'model':'custom-model'}
     assert spec['holdout']=='b' and spec['controls']['steps']==500
     assert spec['controls']['checkpoint_every']==250
+    assert spec['controls']['alignment_method']=='mms'
+    assert training.training_spec(dict(valid,alignment_method='whisper'))['controls']['alignment_method']=='whisper'
     explicit=training.training_spec(dict(valid,steps=800,checkpoint_every=200))
     assert explicit['controls']['steps']==800 and explicit['controls']['checkpoint_every']==200
     for key,value in [('steps',True),('steps',1601),('rank',0),('alignment_weight',float('nan')),('learning_rate',1),('python','bad')]:
         with pytest.raises(ValueError):training.training_spec(dict(valid,**{key:value}))
+    with pytest.raises(ValueError,match='MMS or Whisper'):
+        training.training_spec(dict(valid,alignment_method='other'))
 
 
 def test_runtime_shows_historical_gpu_verification(tmp_path,monkeypatch):

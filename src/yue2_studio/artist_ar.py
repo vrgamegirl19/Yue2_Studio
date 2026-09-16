@@ -99,12 +99,30 @@ def cursor_targets(item,tokenizer,device):
         if not matches:raise ValueError('An aligned word has no lyric token.')
         mapping.append(matches)
     frames=len(item['codec'])
-    indices=np.clip(np.searchsorted(words[:,0],np.arange(frames)/25,side='right')-1,0,len(words)-1)
+    selective=item.get('alignment_method')=='whisper'
+    if selective:
+        # Estimated lyric positions stay in the review JSON, but only observed
+        # acoustic word intervals supervise the cursor.
+        indices=np.full(frames,-1,dtype=np.int32)
+        times=(np.arange(frames)+.5)/25
+        for index,(start,end,weight,_,_) in enumerate(words):
+            if weight>0 and end>start:
+                indices[(times>=start)&(times<end)]=index
+        active=np.flatnonzero(indices>=0)
+        if not len(active):return None
+        chosen=indices[active]
+    else:
+        indices=np.clip(np.searchsorted(words[:,0],np.arange(frames)/25,side='right')-1,0,len(words)-1)
+        active=np.arange(frames);chosen=indices
     rows=[];cols=[];values=[]
-    for frame,word in enumerate(indices):
-        tokens=mapping[word];rows.extend([frame]*len(tokens));cols.extend(tokens);values.extend([1/len(tokens)]*len(tokens))
-    return (1+first,1+len(ids_full),frames,
-            torch.tensor(rows,device=device),torch.tensor(cols,device=device),torch.tensor(values,device=device))
+    normalizer=0.
+    for row,word in enumerate(chosen):
+        tokens=mapping[word];weight=float(words[word,2]) if selective else 1.
+        rows.extend([row]*len(tokens));cols.extend(tokens);values.extend([weight/len(tokens)]*len(tokens))
+        normalizer+=weight
+    base=(1+first,1+len(ids_full),frames,
+          torch.tensor(rows,device=device),torch.tensor(cols,device=device),torch.tensor(values,device=device))
+    return base+(torch.tensor(active,device=device),normalizer) if selective else base
 
 
 def training_attention(q,k,v,query_chunk_size=256):
@@ -157,7 +175,12 @@ def loss(model,ids,prefix_length,cursor_head=None,cursor=None,grad=True,chunk=25
         total=total+(checkpoint(ce,*args,use_reentrant=False) if grad else ce(*args))
     lm=total/len(h)
     if cursor is None:return lm,None
-    j0,j1,frames,rows,cols,values=cursor
-    q=cursor_head(h[:frames].float());keys=hn[j0:j1].float()
+    j0,j1,frames,rows,cols,values=cursor[:6]
+    if len(cursor)==8:
+        active,normalizer=cursor[6:]
+        q=cursor_head(h[active].float())
+    else:
+        normalizer=frames;q=cursor_head(h[:frames].float())
+    keys=hn[j0:j1].float()
     logp=(q@keys.T/math.sqrt(q.shape[-1])).log_softmax(-1)
-    return lm,-(logp[rows,cols]*values).sum()/frames
+    return lm,-(logp[rows,cols]*values).sum()/normalizer

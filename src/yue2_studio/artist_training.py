@@ -25,7 +25,7 @@ def validate_project(project):
 
 
 def training_spec(payload):
-    allowed={'project_id','steps','rank','learning_rate','checkpoint_every','alignment_weight','gpu_confirmed'}
+    allowed={'project_id','steps','rank','learning_rate','checkpoint_every','alignment_weight','alignment_method','gpu_confirmed'}
     if set(payload)-allowed:raise ValueError('Unknown artist training controls.')
     if payload.get('gpu_confirmed') is not True:
         raise ValueError('Confirm GPU preparation and training before queueing.')
@@ -40,10 +40,17 @@ def training_spec(payload):
         value=payload.get(key,default)
         if type(value) not in (int,float) or not math.isfinite(value) or not lo<=value<=hi:raise ValueError('Invalid '+key)
         controls[key]=value
+    method=payload.get('alignment_method','mms')
+    if type(method) is not str or method not in ('mms','whisper'):
+        raise ValueError('Choose MMS or Whisper-assisted lyric timing.')
+    controls['alignment_method']=method
     from .artist_setup import check_setup
     setup=check_setup()
     if not setup['files_and_imports_ready']:raise ValueError('Artist setup incomplete: '+'; '.join(setup['issues']))
     runtime=setup['runtime']['python']
+    if method=='whisper' and controls['alignment_weight']>0:
+        from .artist_setup import check_whisper_runtime
+        check_whisper_runtime(runtime)
     return dict(title=project['name']+' · Artist LoRA',stage='artist_train',mode='artist_trainer',
                 project=project,controls=controls,python=str(runtime),paths=setup['paths'],holdout=selected[-1]['name'],
                 regularizer_revision=REG_REVISION,regularizer_sha256=REG_SHA256,gpu_confirmed=True)

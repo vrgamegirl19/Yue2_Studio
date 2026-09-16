@@ -56,7 +56,9 @@ any custom engine changes. See [Style Trainer setup](docs/trainer.md) and
 The experimental [Artist Trainer](docs/artist-trainer.md) adds full-song lyric
 conditioning and AR adapters with a pinned community acoustic companion. Follow
 [Artist setup](docs/artist-setup.md) for separate dependencies, model paths and
-terms. Playback requires No score, Torch, no quantization and AR offloading off;
+terms. Lyric timing offers the original MMS forced aligner or experimental
+Whisper-assisted matching; the guide explains their differences and separate
+runtime installation. Playback requires No score, Torch, no quantization and AR offloading off;
 GGUF and arbitrary adapter stacking are unsupported. The installer also accepts
 the known merged Style Trainer pipeline, with backups, but rejects unfamiliar
 Artist adapter code. Fresh isolated setup, alignment, short GPU training and playback
