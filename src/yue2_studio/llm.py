@@ -18,6 +18,7 @@ PROVIDERS = [
     dict(id='deepseek', label='DeepSeek', url='https://api.deepseek.com/v1', protocol='chat', key=True),
     dict(id='openrouter', label='OpenRouter', url='https://openrouter.ai/api/v1', protocol='chat', key=True),
     dict(id='apifreellm', label='APIFreeLLM', url='https://apifreellm.com/api/v1', protocol='apifreellm', key=True),
+    dict(id='groq', label='Groq', url='https://api.groq.com/openai/v1', protocol='chat', key=True),
     dict(id='lm_studio', label='LM Studio', url='http://127.0.0.1:1234/v1', protocol='lm_studio', key=False),
     dict(id='ollama', label='Ollama', url='http://127.0.0.1:11434', protocol='ollama', key=False),
     dict(id='own_server', label='Custom server', url='http://127.0.0.1:8000/v1', protocol='chat', key=False),
@@ -73,7 +74,7 @@ def config(value, need_model=True):
         raise ValueError('Local context must be an integer from 512 to 1048576.')
     if temperature is not None and (type(temperature) not in (int,float) or not math.isfinite(temperature) or not 0<=temperature<=2):
         raise ValueError('Writing temperature must be blank or between 0 and 2.')
-    headers = {'Content-Type':'application/json','Accept':'application/json'}
+    headers = {'Content-Type':'application/json','Accept':'application/json','User-Agent': 'LLM-Runner/1.0'}
     if key:
         headers['Authorization'] = 'Bearer ' + key
     if provider['protocol'] == 'anthropic':
