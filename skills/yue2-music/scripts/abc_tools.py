@@ -270,6 +270,31 @@ def compare(before: Score, after: Score, names=VOICES, allow_tempo_change=False)
 def strip_chords(text: str, keep_voice="both") -> str:
     source = parse(text)
     lines = text.splitlines(keepends=True)
+    if keep_voice == "convert_vocal_to_ins":
+        # First strip chords
+        for index in source.music_lines:
+            lines[index] = TOKEN.sub(lambda m: "" if m.group("chord") is not None else m.group(0), lines[index])
+        # Cleaned source
+        cleaned_source = parse("".join(lines))
+        vocal_indices = [idx for idx, name in cleaned_source.music_lines.items() if name == "Vocal"]
+        ins_indices = [idx for idx, name in cleaned_source.music_lines.items() if name == "Ins"]
+        for v_idx, ins_idx in zip(vocal_indices, ins_indices):
+            v_line = lines[v_idx]
+            ins_line = lines[ins_idx]
+            # Silence vocal line into rests
+            v_silenced = TOKEN.sub(lambda m: ("z" + m.group("duration")) if m.group("note") else m.group(0), v_line)
+            # Check if Ins was resting
+            ins_notes = [m.group("note") for m in TOKEN.finditer(ins_line) if m.group("note") and m.group("note") != "z"]
+            if not ins_notes:
+                lines[ins_idx] = v_line
+                lines[v_idx] = v_silenced
+            else:
+                lines[v_idx] = v_silenced
+        output = "".join(lines)
+        result = parse(output)
+        fail(any(v.chords for v in result.voices.values()), "Chord removal left a chord symbol")
+        return output
+
     for index, name in source.music_lines.items():
         def transform(match):
             if match.group("chord") is not None:

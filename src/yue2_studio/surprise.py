@@ -170,11 +170,17 @@ class SurpriseManager:
                        (record['voice']!='instrumental' and draft['lyrics'].strip()==p['lyrics']) for p in previous):
                     raise ValueError('The LLM repeated an earlier song. This batch was stopped to avoid rendering duplicates.')
                 style=options['style'] if record.get('lock_style') else draft['style']
-                if not record.get('lock_style') and record['voice']!='any':style=VOICES[record['voice']]+' '+style
+                if not record.get('lock_style') and record['voice']!='any':
+                    if record['voice'] == 'instrumental':
+                        # Do not use negative words like 'no vocals' (attention leakage)
+                        style = 'pure instrumental, ' + style
+                    else:
+                        style = VOICES[record['voice']] + ' ' + style
                 lyrics='' if record['voice']=='instrumental' else draft['lyrics']
+                cot_mode = 'off' if record['voice']=='instrumental' else record['cot']
                 spec={'title':draft['title'],'mode':'create','stage':'audio',
                       'source_job':f'surprise:{batch_id}:{index+1}', 'settings':record['settings'],
-                      'request':{'style':style,'lyrics':lyrics,'cot':record['cot'],'seed':secrets.randbits(63)}}
+                      'request':{'style':style,'lyrics':lyrics,'cot':cot_mode,'seed':secrets.randbits(63)}}
                 # Lock prevents a stop request from slipping between submission and ownership.
                 with self.lock:
                     if event.is_set():break

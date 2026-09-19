@@ -74,8 +74,8 @@ def oom_retry_spec(spec):
 def score_check(text, strip=False, keep_voice='both'):
     if not isinstance(text,str) or len(text)>500000:
         raise ValueError('ABC must be text under 500 KB.')
-    if keep_voice not in ('both','Vocal','Ins'):
-        raise ValueError('Select both voices, Vocal or Ins.')
+    if keep_voice not in ('both','Vocal','Ins','convert_vocal_to_ins'):
+        raise ValueError('Select both voices, Vocal, Ins or convert_vocal_to_ins.')
     prepared = strip_chords(text,keep_voice) if strip else text
     return {'abc':prepared,'report':report(parse_abc(prepared))}
 
